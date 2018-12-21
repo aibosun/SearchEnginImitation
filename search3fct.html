@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Solr Search</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+<script src="http://ajax.googleapis.com/ajax/libs/jquery/1.8.2/jquery.min.js"></script>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.6-rc.0/css/select2.min.css" rel="stylesheet" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.6-rc.0/js/select2.min.js"></script>
+<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.3.2/jquery.min.js"></script>
+<script type="text/javascript" src="speller.js"></script>
+<script language="Javascript">
+var arrFile=[];
+// ---------------Spelling Correction starts----------------------------------------//
+ $(document).ready(function() {
+    
+     $.get("NYD Map.csv", null, function (data, textStatus) {
+         arrFile = data.split(/\r\n|\n/);
+		}, "text");
+     
+     $.get("big.txt", null, function (data, textStatus) {
+			var lines = data.split("\n");
+			lines.forEach(function (line) {
+                speller.train(line);
+            });
+		}, "text");
+
+     $(document).bind('click', function(e) {  
+                var e = e || window.event; //compatible  
+                var elem = e.target || e.srcElement;  
+                while (elem) { //exclude div
+                    if (elem.id && elem.id == 'resultsdiv') {  
+                        return;  
+                    }  
+                    elem = elem.parentNode;  
+                }  
+                $('#correctlist').css('display', 'none'); //hide div
+    });  
+});   
+// ----------------------------------search query starts-------------------------------//
+function xmlhttpPost(strURL) {
+    //-----------------------------Spelling Correction stars
+    var word = $('#query')[0].value.toLowerCase();
+    var wordarr = word.split(" ");
+    var didyoumean = "";
+    var hidenquery ="";
+    if(wordarr.length!=0){
+        for(var i=0;i<wordarr.length;i++){
+            if(wordarr[i]!=""&&wordarr[i]!=" "){
+                 var newword =speller.correct(wordarr[i]+"");
+                 if(wordarr[i]!=newword){
+                     didyoumean=didyoumean+" <i><b>"+newword+"</b></i> ";
+                 }else{
+                     didyoumean=didyoumean+" "+newword+" ";
+                 }
+                hidenquery=hidenquery+newword+" ";
+            }
+        }
+    }
+    document.getElementById("hidquery").value=hidenquery;
+    if(didyoumean.indexOf("<i>")!=-1){
+        document.getElementById("youmean").style.display='block';
+        $("#recommend")[0].innerHTML=didyoumean;
+    }else{
+         document.getElementById("youmean").style.display='none';
+    }
+    //-----------------------------Spelling Correction  ends
+    
+    var xmlHttpReq = false;
+    var self = this;
+    if (window.XMLHttpRequest) { // Mozilla/Safari
+        self.xmlHttpReq = new XMLHttpRequest();
+    }
+    else if (window.ActiveXObject) { // IE
+        self.xmlHttpReq = new ActiveXObject("Microsoft.XMLHTTP");
+    }
+   
+    self.xmlHttpReq.open('POST', strURL, true);
+    self.xmlHttpReq.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    
+   
+    self.xmlHttpReq.onreadystatechange = function() {
+        if (self.xmlHttpReq.readyState == 4) {
+             updatepage(self.xmlHttpReq.responseText);
+        }
+    };
+
+   var params = getstandardargs().concat(getquerystring());
+    var strData = params.join('&');
+    self.xmlHttpReq.send(strData);
+}
+
+
+function getstandardargs() {
+    var params = [
+        'wt=json'
+        , 'indent=on'
+        , 'hl=true'
+        , 'hl.fl=*'
+        , 'hl.simple.pre=<b><i>'
+        ,'hl.simple.post=</i></b>'
+        ];
+
+    return params;
+}
+
+function getquerystring() {
+  var query = document.getElementById("query").value;
+  var sortby = "";
+   var radio = document.getElementsByName("sortby");  
+    for (i=0; i<radio.length; i++) {  
+        if (radio[i].checked) {  
+            sortby=radio[i].value;  
+        }  
+    }  
+  var qstr="q=";
+  if(sortby=="def"){
+     qstr= qstr + escape(query);
+  }else if(sortby=="pagerank"){
+    qstr = qstr + escape(query)+"&sort=pageRankFile desc";
+  }
+  return qstr;
+}
+    
+function updatepage(str){
+  
+    var rsp = eval("("+str+")"); // use eval to parse Solr's JSON 
+    var documents = rsp.response.docs;
+    var hlarr = rsp.highlighting;
+    var html= "";
+    for(var i=0;i<documents.length;i++){
+        var urlVal = documents[i].og_url;
+        var webid = documents[i].id;
+        var snippets ="";
+        
+        if(typeof(hlarr[''+webid+''].description)!="undefined"){
+              snippets=hlarr[''+webid+''].description;
+        }else if(typeof(hlarr[''+webid+''].dc_title)!="undefined"){
+            snippets=hlarr[''+webid+''].dc_title;
+        }else if(typeof(hlarr[''+webid+''].keywords)!="undefined"){
+             snippets=hlarr[''+webid+''].keywords;
+        }
+        if(snippets.length>160){
+           snippets=snippets.substring(0,160);
+        }
+        if(snippets.length!=0){
+        snippets+="......";
+        }
+        
+        if(typeof(documents[i].og_url)=="undefined"){
+            
+           urlVal=searchUrlinFile(documents[i].id+"");
+          
+        }
+        html= html+"<div style='margin-top:30px;margin-left:150px'><table style='width:100%'>"
+                  +"<tr><td style='font-size:20px;'><a href='"+urlVal+"' target='_blank' style='text-decoration:none'>"+documents[i].title+"</a></td></tr>"
+                  +"<tr><td><a href='"+urlVal+"' target='_blank' style='color:#234c0a;text-decoration:none'>"+urlVal+"</a></td></tr>"
+                  +"<tr><td style='color:#34363a;'>"+snippets+"</td></tr>"
+                  +"<tr><td>"+webid+"</td></tr>"
+                  +"<tr><td style='color:#34363a;'>";
+         if(typeof(documents[i].description)!="undefined"){
+                html+=documents[i].description;  
+         }else{
+                html+=" ";  
+         }
+        html+="</td></tr></table></div>";
+    }
+    document.getElementById("result").innerHTML = html;
+    
+}
+// ---------------autoComplete starts----------------------------------------//
+var queryauto ="";
+var prequeryauto="";
+function autoComplete(strURL) {
+    var xmlHttpReq = false;
+    var self = this;
+    if (window.XMLHttpRequest) { // Mozilla/Safari
+        self.xmlHttpReq = new XMLHttpRequest();
+    }
+    else if (window.ActiveXObject) { // IE
+        self.xmlHttpReq = new ActiveXObject("Microsoft.XMLHTTP");
+    }
+   
+    self.xmlHttpReq.open('POST', strURL, true);
+    self.xmlHttpReq.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    
+   
+    self.xmlHttpReq.onreadystatechange = function() {
+        if (self.xmlHttpReq.readyState == 4) {
+             listCorrection(self.xmlHttpReq.responseText);
+        }
+    };
+   queryauto= document.getElementById("query").value;
+   var qarr = queryauto.split(" ");
+   prequeryauto = queryauto.substring(0,queryauto.indexOf(qarr[qarr.length-1]));
+   if(qarr.length!=0&&qarr[qarr.length-1]!=""){
+        queryauto = qarr[qarr.length-1];
+   }
+   var qstr = "suggest.q="+escape(queryauto);
+   var params = getstandardAutoCom().concat(qstr);
+   var strData = params.join('&');
+   self.xmlHttpReq.send(strData);
+}
+function getstandardAutoCom() {
+    var params = [
+        'wt=json'
+        , 'suggest=true'
+        , 'suggest.dictionary=suggest'
+        ];
+
+    return params;
+}
+function listCorrection(str){
+    var res = eval("("+str+")"); 
+    res=res.suggest.suggest;
+    res = res[''+queryauto+''];
+    document.getElementById("correctlist").innerHTML="";
+    var htmllist="";
+    if(res.numFound!=0){
+        document.getElementById("correctlist").style.display='block';
+        res=res.suggestions
+        for(var i =0;i<res.length;i++){
+            var coquery = prequeryauto+""+res[i].term;
+            htmllist+='<li style="list-style:none;text-align: left;marign: 0px;" onclick="replaceSearch(\''+coquery+'\');">'+res[i].term+'</li>';
+        }
+    }else{
+        document.getElementById("correctlist").style.display='none';
+    }
+    document.getElementById("correctlist").innerHTML=htmllist;
+  
+}  
+ function replaceSearch(reval){
+     document.getElementById("query").value=reval;
+     var url = "http://localhost:8983/solr/mySolarCore/select";
+     document.getElementById("correctlist").style.display='none';
+     xmlhttpPost(url);
+     
+ }
+
+//repalce undefined ID in Solar with Map file
+function searchUrlinFile(idVal) {
+      for(var i=0;i<arrFile.length;i++){
+          var arrRow=arrFile[i].split(",");
+          if(idVal.indexOf(arrRow[0])!=-1){
+             return arrRow[1]+"";
+          }
+      }
+    return "";
+}
+function hidecorList(){
+    document.getElementById("correctlist").style.display='none';
+}
+function searchAgain(){
+    replaceSearch(document.getElementById("hidquery").value);
+}
+    
+</script>
+</head>
+<body>
+<div width="100%">  
+<div style="width:1500px;height:100px;position: relative;margin-top:30px;">
+    <span style="float:left;margin-left: 400px;position: absolute">Query: </span>
+    <span style="width:400px;margin-left: 450px;position: absolute">
+    <div id="resultsdiv" style="width:400px;padding:0px;">
+    <input id="query" name="query" value="" type="text" style="width:395px;height:20px; border:solid 0.3px #e5e7ea;margin-left:0px;" oninput="autoComplete('http://localhost:8983/solr/mySolarCore/suggest'); return false;" onkeyup="if(event.keyCode==13){xmlhttpPost('http://localhost:8983/solr/mySolarCore/select')}; return false;" autocomplete="off"/> 
+    <ul id="correctlist" style="width:391px;height:100%;border:solid 1px #e5e7ea; border-top:0px;padding-left:5px;display:none;margin-top:0px;"></ul>
+    </div>
+    </span>
+     <span style="margin-left:850px;position: absolute"> 
+         <input type="radio" name="sortby" value="def" checked/>Defalt
+         <input type="radio" name="sortby" value="pagerank"/>PageRank</span>
+</div>
+<center>
+<div width="100%" id="youmean" style="display: none; margin-top:50px;font-size:20px;"><font color="red">Did you mean:</font>
+    <span id ="recommend" onclick="searchAgain();"></span><input id="hidquery" type="text" value="" style="display:none;"/> </div>
+<div id="result"></div>
+</center>
+</div>
+</body>
+</html>
